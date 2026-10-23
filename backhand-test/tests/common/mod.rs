@@ -1,3 +1,7 @@
+// Each test uses only some of these helpers
+#![allow(dead_code)]
+
+use std::num::NonZeroUsize;
 use std::process::Command;
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -5,6 +9,10 @@ use std::time::Duration;
 use assert_cmd::prelude::*;
 use tempfile::tempdir_in;
 use test_assets_ureq::{TestAsset, dl_test_files_backoff};
+
+/// The threads that the tests compress and decompress data blocks with, so that they cover
+/// decompression and compression on threads of their own
+pub const THREADS: NonZeroUsize = NonZeroUsize::new(4).unwrap();
 
 static TEST_ASSETS: OnceLock<TestAsset> = OnceLock::new();
 

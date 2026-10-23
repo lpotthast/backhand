@@ -31,12 +31,13 @@ use crate::{
 
 /// Representation of SquashFS filesystem to be written back to an image
 /// - Use [`Self::from_fs_reader`] to write with the data from a previous SquashFS image
-/// - Use [`Self::default`] to create an empty SquashFS image without an original image. For example:
+/// - Use [`Self::new`] to create an empty SquashFS image without an original image. For example:
 /// ```rust
 /// # use std::time::SystemTime;
+/// # use std::num::NonZeroUsize;
 /// # use backhand::{NodeHeader, Id, FilesystemCompressor, FilesystemWriter, SquashfsDir, compression::Compressor, kind, DEFAULT_BLOCK_SIZE, ExtraXz, CompressionExtra, kind::Kind};
 /// // Add empty default FilesytemWriter
-/// let mut fs = FilesystemWriter::default();
+/// let mut fs = FilesystemWriter::new(NonZeroUsize::MIN);
 /// fs.set_current_time();
 /// fs.set_block_size(DEFAULT_BLOCK_SIZE);
 /// fs.set_only_root_id();
@@ -82,16 +83,22 @@ pub struct FilesystemWriter<'a, 'b, 'c> {
     /// Superblock Flag to remove duplicate flags
     pub(crate) no_duplicate_files: bool,
     pub(crate) emit_compression_options: bool,
-    /// The number of threads that compress data blocks. `None` chooses it when writing.
-    pub(crate) compression_threads: Option<NonZeroUsize>,
+    /// The number of threads that compress data blocks
+    pub(crate) compression_threads: NonZeroUsize,
 }
 
-impl Default for FilesystemWriter<'_, '_, '_> {
-    /// Create default FilesystemWriter
+impl<'a, 'b, 'c> FilesystemWriter<'a, 'b, 'c> {
+    /// Create a FilesystemWriter that compresses data blocks on `compression_threads` threads
     ///
     /// block_size: [`DEFAULT_BLOCK_SIZE`], compressor: default XZ compression, no nodes,
     /// kind: [`LE_V4_0`], and mod_time: `0`.
-    fn default() -> Self {
+    ///
+    /// The image is the same for any number of threads. With one thread, blocks are compressed
+    /// on the thread that calls [`Self::write`]. Otherwise, [`Self::write`] spawns the threads
+    /// and keeps at most one block per thread, and a few more, in memory while it waits for
+    /// them. [`std::thread::available_parallelism`] gives the number of CPUs that the process
+    /// may use.
+    pub fn new(compression_threads: NonZeroUsize) -> Self {
         let block_size = DEFAULT_BLOCK_SIZE;
         Self {
             block_size,
@@ -104,25 +111,10 @@ impl Default for FilesystemWriter<'_, '_, '_> {
             pad_len: DEFAULT_PAD_LEN,
             no_duplicate_files: true,
             emit_compression_options: true,
-            compression_threads: None,
+            compression_threads,
         }
     }
-}
 
-/// With the `parallel` feature, one thread for each CPU that the process may use. Otherwise one,
-/// which compresses on the calling thread.
-fn default_compression_threads() -> NonZeroUsize {
-    #[cfg(feature = "parallel")]
-    {
-        std::thread::available_parallelism().unwrap_or(NonZeroUsize::MIN)
-    }
-    #[cfg(not(feature = "parallel"))]
-    {
-        NonZeroUsize::MIN
-    }
-}
-
-impl<'a, 'b, 'c> FilesystemWriter<'a, 'b, 'c> {
     /// Set block size
     ///
     /// # Panics
@@ -140,8 +132,9 @@ impl<'a, 'b, 'c> FilesystemWriter<'a, 'b, 'c> {
     ///
     /// # Example: Set to `Wed Oct 19 01:26:15 2022`
     /// ```rust
+    /// # use std::num::NonZeroUsize;
     /// # use backhand::{FilesystemWriter, kind};
-    /// let mut fs = FilesystemWriter::default();
+    /// let mut fs = FilesystemWriter::new(NonZeroUsize::MIN);
     /// fs.set_time(0x634f_5237);
     /// ```
     pub fn set_time(&mut self, mod_time: u32) {
@@ -157,8 +150,9 @@ impl<'a, 'b, 'c> FilesystemWriter<'a, 'b, 'c> {
     ///
     /// # Example: Set kind to default V4.0
     /// ```rust
+    /// # use std::num::NonZeroUsize;
     /// # use backhand::{FilesystemWriter, kind::Kind, kind};
-    /// let mut fs = FilesystemWriter::default();
+    /// let mut fs = FilesystemWriter::new(NonZeroUsize::MIN);
     /// fs.set_kind(Kind::from_const(kind::LE_V4_0).unwrap());
     /// ```
     pub fn set_kind(&mut self, kind: Kind) {
@@ -169,8 +163,9 @@ impl<'a, 'b, 'c> FilesystemWriter<'a, 'b, 'c> {
     ///
     /// # Example
     ///```rust
+    /// # use std::num::NonZeroUsize;
     /// # use backhand::FilesystemWriter;
-    /// let mut fs = FilesystemWriter::default();
+    /// let mut fs = FilesystemWriter::new(NonZeroUsize::MIN);
     /// fs.set_root_mode(0o777);
     /// ```
     pub fn set_root_mode(&mut self, mode: u16) {
@@ -226,21 +221,12 @@ impl<'a, 'b, 'c> FilesystemWriter<'a, 'b, 'c> {
         self.emit_compression_options = value;
     }
 
-    /// Set the number of threads that compress data blocks
-    ///
-    /// The image is the same for any number of threads. With one thread, blocks are compressed
-    /// on the thread that calls [`Self::write`]. Otherwise, [`Self::write`] spawns the threads
-    /// and keeps at most one block per thread, and a few more, in memory while it waits for
-    /// them.
-    ///
-    /// Defaults to the number of CPUs available with the `parallel` feature, and to one
-    /// without it.
-    pub fn set_compression_threads(&mut self, threads: NonZeroUsize) {
-        self.compression_threads = Some(threads);
-    }
-
-    /// Inherit filesystem structure and properties from `reader`
-    pub fn from_fs_reader(reader: &'a FilesystemReader<'b>) -> Result<Self, BackhandError> {
+    /// Inherit filesystem structure and properties from `reader`, and compress data blocks on
+    /// `compression_threads` threads like [`Self::new`]
+    pub fn from_fs_reader(
+        reader: &'a FilesystemReader<'b>,
+        compression_threads: NonZeroUsize,
+    ) -> Result<Self, BackhandError> {
         let mut root: Vec<Node<_>> = reader
             .root
             .nodes
@@ -276,7 +262,7 @@ impl<'a, 'b, 'c> FilesystemWriter<'a, 'b, 'c> {
             pad_len: DEFAULT_PAD_LEN,
             no_duplicate_files: reader.no_duplicate_files,
             emit_compression_options: true,
-            compression_threads: None,
+            compression_threads,
         })
     }
 
@@ -548,7 +534,7 @@ impl<'a, 'b, 'c> FilesystemWriter<'a, 'b, 'c> {
                 _ => None,
             })
             .collect();
-        let threads = self.compression_threads.unwrap_or_else(default_compression_threads);
+        let threads = self.compression_threads;
         let added = data_writer.write_files(threads, &mut writer, |session| {
             for file in &mut files {
                 match &mut **file {

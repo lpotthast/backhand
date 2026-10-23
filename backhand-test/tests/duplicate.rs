@@ -5,6 +5,9 @@
 
 #![cfg(feature = "xz")]
 
+mod common;
+use common::THREADS;
+
 use std::io::{Cursor, Read};
 use std::process::Command;
 
@@ -23,7 +26,7 @@ fn noise(len: usize, seed: u64) -> Vec<u8> {
 
 /// Write `files` as (name, content) into an image
 fn write_image(files: &[(&str, &[u8])], duplicate_check: bool) -> Vec<u8> {
-    let mut fs = FilesystemWriter::default();
+    let mut fs = FilesystemWriter::new(THREADS);
     fs.set_no_duplicate_files(duplicate_check);
     // squashfs-tools/unsquashfs must be able to read the files
     fs.set_root_mode(0o755);
@@ -38,7 +41,7 @@ fn write_image(files: &[(&str, &[u8])], duplicate_check: bool) -> Vec<u8> {
 
 /// Return the inode and the content of each file, in the order of `names`
 fn read_files(image: &[u8], names: &[&str]) -> Vec<(SquashfsFileReader, Vec<u8>)> {
-    let reader = FilesystemReader::from_reader(Cursor::new(image)).unwrap();
+    let reader = FilesystemReader::from_reader(Cursor::new(image), THREADS).unwrap();
     names
         .iter()
         .map(|name| {

@@ -1,4 +1,5 @@
 mod common;
+use common::THREADS;
 
 use backhand::DEFAULT_BLOCK_SIZE;
 use std::io::{Cursor, Read, Seek, SeekFrom};
@@ -21,7 +22,7 @@ mod v4 {
         let data: Vec<u8> =
             (0..size).map(|i| ((i ^ (i >> 8) ^ (i >> 16) ^ (i >> 24)) & 255) as u8).collect();
 
-        let mut fs = FilesystemWriter::default();
+        let mut fs = FilesystemWriter::new(THREADS);
         fs.push_file(Cursor::new(data.clone()), "test_file", NodeHeader::default()).unwrap();
         let mut out = Cursor::new(Vec::new());
         fs.write(&mut out).unwrap();
@@ -32,7 +33,7 @@ mod v4 {
     #[test]
     fn test_seek_and_read() {
         let (squashfs, data) = create_test_data();
-        let reader = FilesystemReader::from_reader(Cursor::new(&squashfs)).unwrap();
+        let reader = FilesystemReader::from_reader(Cursor::new(&squashfs), THREADS).unwrap();
         let node = reader.files().find(|n| n.fullpath.to_str() == Some("/test_file")).unwrap();
         let file = match &node.inner {
             InnerNode::File(f) => f,
@@ -71,7 +72,7 @@ mod v4 {
     #[test]
     fn test_seek_positions() {
         let (squashfs, _) = create_test_data();
-        let reader = FilesystemReader::from_reader(Cursor::new(&squashfs)).unwrap();
+        let reader = FilesystemReader::from_reader(Cursor::new(&squashfs), THREADS).unwrap();
         let node = reader.files().find(|n| n.fullpath.to_str() == Some("/test_file")).unwrap();
         let file = match &node.inner {
             InnerNode::File(f) => f,
@@ -121,6 +122,7 @@ mod v3 {
             file,
             0,
             Kind::from_const(LE_V3_0).unwrap(),
+            THREADS,
         )
         .unwrap();
 

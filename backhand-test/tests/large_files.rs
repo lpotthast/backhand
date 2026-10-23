@@ -1,3 +1,6 @@
+mod common;
+use common::THREADS;
+
 use std::collections::HashMap;
 /// Test for large squashfs images with large files and file counts
 /// This verifies that backhand supports large file sizes, large block counts,
@@ -93,7 +96,7 @@ fn write_squashfs_image(
     test_file_specs: &[TestFileSpec],
 ) -> HashMap<String, String> {
     info!("Creating FilesystemWriter and adding {} test files", test_file_specs.len());
-    let mut fs_writer = FilesystemWriter::default();
+    let mut fs_writer = FilesystemWriter::new(THREADS);
     let compressor = get_compressor().unwrap();
     fs_writer.set_compressor(compressor);
     let default_header = NodeHeader::default();
@@ -130,7 +133,8 @@ fn verify_squashfs_image(
 ) {
     info!("Opening squashfs image for reading");
     let input = BufReader::new(File::open(image_path).expect("Failed to open squashfs image"));
-    let fs_reader = FilesystemReader::from_reader(input).expect("Failed to read squashfs image");
+    let fs_reader =
+        FilesystemReader::from_reader(input, THREADS).expect("Failed to read squashfs image");
 
     info!("Successfully opened squashfs image");
 

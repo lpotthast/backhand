@@ -16,17 +16,28 @@
 //! [`FilesystemWriter`] can also be created from scratch, without a previous image to base itself
 //! on.
 //!
+//! ### Threads
+//! A [`FilesystemReader`] decompresses data blocks, and a [`FilesystemWriter`] compresses them,
+//! on the number of threads that is passed when it is created. With one thread, the calling
+//! thread does all the work and backhand spawns no threads. Images are the same for any number of
+//! threads. [`std::thread::available_parallelism`] gives the number of CPUs that the process may
+//! use.
+//!
 //!### Example
 //!```rust,no_run
 //! # use std::fs::File;
 //! # use std::io::{Cursor, BufReader};
+//! # use std::thread::available_parallelism;
 //! # use backhand::{FilesystemReader, FilesystemWriter, NodeHeader};
+//! // use every CPU
+//! let threads = available_parallelism().unwrap();
+//!
 //! // read
 //! let file = BufReader::new(File::open("file.squashfs").unwrap());
-//! let read_filesystem = FilesystemReader::from_reader(file).unwrap();
+//! let read_filesystem = FilesystemReader::from_reader(file, threads).unwrap();
 //!
 //! // convert to writer
-//! let mut write_filesystem = FilesystemWriter::from_fs_reader(&read_filesystem).unwrap();
+//! let mut write_filesystem = FilesystemWriter::from_fs_reader(&read_filesystem, threads).unwrap();
 //!
 //! // add file with data from slice
 //! let d = NodeHeader::default();

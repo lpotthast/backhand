@@ -1,4 +1,5 @@
 mod common;
+use common::THREADS;
 
 use std::fs::File;
 use std::io::{BufWriter, Cursor};
@@ -40,7 +41,7 @@ fn test_raw_00() {
     let time = 0x634f_5237;
 
     // (some of these are already set with default(), but just testing...)
-    let mut fs: FilesystemWriter = FilesystemWriter::default();
+    let mut fs: FilesystemWriter = FilesystemWriter::new(THREADS);
     fs.set_time(time);
     fs.set_block_size(DEFAULT_BLOCK_SIZE);
     fs.set_root_mode(0o777);
@@ -110,8 +111,8 @@ drwxrw-rw- 1000/1000                27 1970-01-01 00:00 squashfs-root/usr/bin
 
     // Test downing the compression level
     let file = BufReader::new(File::open(new_path).unwrap());
-    let fs = FilesystemReader::from_reader(file).unwrap();
-    let mut fs = FilesystemWriter::from_fs_reader(&fs).unwrap();
+    let fs = FilesystemReader::from_reader(file, THREADS).unwrap();
+    let mut fs = FilesystemWriter::from_fs_reader(&fs, THREADS).unwrap();
     let mut xz_extra = ExtraXz::default();
     xz_extra.level(1).unwrap();
     let extra = CompressionExtra::Xz(xz_extra);
@@ -134,8 +135,8 @@ drwxrw-rw- 1000/1000                27 1970-01-01 00:00 squashfs-root/usr/bin
 
     // Test picking a different compression
     let file = BufReader::new(File::open(new_path2).unwrap());
-    let fs = FilesystemReader::from_reader(file).unwrap();
-    let mut fs = FilesystemWriter::from_fs_reader(&fs).unwrap();
+    let fs = FilesystemReader::from_reader(file, THREADS).unwrap();
+    let mut fs = FilesystemWriter::from_fs_reader(&fs, THREADS).unwrap();
     let compressor = FilesystemCompressor::new(Compressor::Gzip, None).unwrap();
     fs.set_compressor(compressor);
 
@@ -154,8 +155,8 @@ drwxrw-rw- 1000/1000                27 1970-01-01 00:00 squashfs-root/usr/bin
 
     // Test changing block size
     let file = BufReader::new(File::open(new_path3).unwrap());
-    let fs = FilesystemReader::from_reader(file).unwrap();
-    let mut fs = FilesystemWriter::from_fs_reader(&fs).unwrap();
+    let fs = FilesystemReader::from_reader(file, THREADS).unwrap();
+    let mut fs = FilesystemWriter::from_fs_reader(&fs, THREADS).unwrap();
     fs.set_block_size(DEFAULT_BLOCK_SIZE * 2);
 
     // create the modified squashfs

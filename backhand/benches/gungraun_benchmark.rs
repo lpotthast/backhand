@@ -1,6 +1,7 @@
 use std::fs::File;
 use std::hint::black_box;
 use std::io::{BufReader, Cursor};
+use std::num::NonZeroUsize;
 
 use backhand::{FilesystemReader, FilesystemWriter};
 use gungraun::{
@@ -20,8 +21,10 @@ fn setup_asset(asset_key: &str, offset: u64) -> (File, u64) {
 
 fn read_write((file, offset): (File, u64)) {
     let file = BufReader::new(file);
-    let og_filesystem = FilesystemReader::from_reader_with_offset(file, offset).unwrap();
-    let mut new_filesystem = FilesystemWriter::from_fs_reader(&og_filesystem).unwrap();
+    let og_filesystem =
+        FilesystemReader::from_reader_with_offset(file, offset, NonZeroUsize::MIN).unwrap();
+    let mut new_filesystem =
+        FilesystemWriter::from_fs_reader(&og_filesystem, NonZeroUsize::MIN).unwrap();
 
     // convert to bytes
     let mut output = Cursor::new(vec![]);
@@ -30,7 +33,7 @@ fn read_write((file, offset): (File, u64)) {
 
 fn read((file, offset): (File, u64)) {
     let file = BufReader::new(file);
-    black_box(FilesystemReader::from_reader_with_offset(file, offset).unwrap());
+    black_box(FilesystemReader::from_reader_with_offset(file, offset, NonZeroUsize::MIN).unwrap());
 }
 
 #[library_benchmark]

@@ -1,3 +1,4 @@
+use std::num::NonZeroUsize;
 use std::sync::{Mutex, RwLock};
 
 use super::super::data::DataSize;
@@ -9,22 +10,19 @@ use super::node::{Node, SquashfsFileReader};
 use crate::error::BackhandError;
 use crate::kinds::Kind;
 use crate::traits::block_reader::{self, BlockReaderVersion, Cache};
+use crate::traits::decompression::Decompression;
+use crate::traits::file_reader;
 use crate::traits::types::Compressor;
 use crate::v4::reader::BufReadSeek;
 
 /// A file's `frag_index` when it has no tail stored in a fragment block
 const NO_FRAGMENT: usize = 0xffffffff;
 
-#[cfg(not(feature = "parallel"))]
-use crate::traits::block_reader_no_parallel as block_reader_impl;
-#[cfg(feature = "parallel")]
-use crate::traits::block_reader_parallel as block_reader_impl;
-
 /// Reads a v3 file's data blocks from the image, without decompressing them
-pub type SquashfsRawData<'a, 'b> = block_reader_impl::SquashfsRawData<'a, 'b, V3Blocks>;
+pub type SquashfsRawData<'a, 'b> = file_reader::SquashfsRawData<'a, 'b, V3Blocks>;
 
 /// A [`std::io::Read`] + [`std::io::Seek`] handle over one v3 file's decompressed contents
-pub type SquashfsReadFile<'a, 'b> = block_reader_impl::SquashfsReadFile<'a, 'b, V3Blocks>;
+pub type SquashfsReadFile<'a, 'b> = file_reader::SquashfsReadFile<'a, 'b, V3Blocks>;
 
 /// Representation of SquashFS filesystem after read from image
 /// - Use [`Self::from_reader`] to read into `Self` from a `reader`
@@ -34,6 +32,7 @@ pub type SquashfsReadFile<'a, 'b> = block_reader_impl::SquashfsReadFile<'a, 'b, 
 /// details for `.nodes`.
 /// ```rust,no_run
 /// # use std::fs::File;
+/// # use std::num::NonZeroUsize;
 /// # use std::io::BufReader;
 /// # use backhand::{
 /// #     FilesystemReader, InnerNode, Squashfs, SquashfsBlockDevice, SquashfsCharacterDevice,
@@ -41,7 +40,7 @@ pub type SquashfsReadFile<'a, 'b> = block_reader_impl::SquashfsReadFile<'a, 'b, 
 /// # };
 /// // Read into filesystem
 /// let file = BufReader::new(File::open("image.squashfs").unwrap());
-/// let filesystem = FilesystemReader::from_reader(file).unwrap();
+/// let filesystem = FilesystemReader::from_reader(file, NonZeroUsize::MIN).unwrap();
 ///
 /// // Iterate through nodes
 /// // (See src/bin/unsquashfs.rs for more examples on extraction)
@@ -64,6 +63,7 @@ pub type SquashfsReadFile<'a, 'b> = block_reader_impl::SquashfsReadFile<'a, 'b, 
 /// optionally not extracting and only listing some Superblock fields.
 /// ```rust,no_run
 /// # use std::fs::File;
+/// # use std::num::NonZeroUsize;
 /// # use std::io::BufReader;
 /// # use backhand::{
 /// #     FilesystemReader, InnerNode, Squashfs, SquashfsBlockDevice, SquashfsCharacterDevice,
@@ -78,7 +78,7 @@ pub type SquashfsReadFile<'a, 'b> = block_reader_impl::SquashfsReadFile<'a, 'b, 
 /// println!("{superblock:#08x?}");
 ///
 /// // Now read into filesystem
-/// let filesystem = squashfs.into_filesystem_reader().unwrap();
+/// let filesystem = squashfs.into_filesystem_reader(NonZeroUsize::MIN).unwrap();
 /// ```
 /// [InnerNode]: [`crate::InnerNode`]
 pub struct FilesystemReader<'b> {
@@ -102,27 +102,37 @@ pub struct FilesystemReader<'b> {
     pub(crate) reader: Mutex<Box<dyn BufReadSeek + 'b>>,
     /// Cache used in the decompression
     pub(crate) cache: RwLock<Cache>,
+    /// The threads that decompress data blocks
+    pub(crate) decompression: Decompression,
 }
 
 impl<'b> FilesystemReader<'b> {
-    /// Call [`Squashfs::from_reader`], then [`Squashfs::into_filesystem_reader`]
+    /// Call [`Squashfs::from_reader`], then [`Squashfs::into_filesystem_reader`], which
+    /// decompresses data blocks on `decompression_threads` threads
     ///
     /// With default kind: [`crate::kind::LE_V4_0`] and offset `0`.
-    pub fn from_reader<R>(reader: R) -> Result<Self, BackhandError>
+    pub fn from_reader<R>(
+        reader: R,
+        decompression_threads: NonZeroUsize,
+    ) -> Result<Self, BackhandError>
     where
         R: BufReadSeek + 'b,
     {
         let squashfs = Squashfs::from_reader_with_offset(reader, 0)?;
-        squashfs.into_filesystem_reader()
+        squashfs.into_filesystem_reader(decompression_threads)
     }
 
     /// Same as [`Self::from_reader`], but seek'ing to `offset` in `reader` before reading
-    pub fn from_reader_with_offset<R>(reader: R, offset: u64) -> Result<Self, BackhandError>
+    pub fn from_reader_with_offset<R>(
+        reader: R,
+        offset: u64,
+        decompression_threads: NonZeroUsize,
+    ) -> Result<Self, BackhandError>
     where
         R: BufReadSeek + 'b,
     {
         let squashfs = Squashfs::from_reader_with_offset(reader, offset)?;
-        squashfs.into_filesystem_reader()
+        squashfs.into_filesystem_reader(decompression_threads)
     }
 
     /// Same as [`Self::from_reader_with_offset`], but setting custom `kind`
@@ -130,12 +140,13 @@ impl<'b> FilesystemReader<'b> {
         reader: R,
         offset: u64,
         kind: Kind,
+        decompression_threads: NonZeroUsize,
     ) -> Result<Self, BackhandError>
     where
         R: BufReadSeek + 'b,
     {
         let squashfs = Squashfs::from_reader_with_offset_and_kind(reader, offset, kind)?;
-        squashfs.into_filesystem_reader()
+        squashfs.into_filesystem_reader(decompression_threads)
     }
 
     /// Return a file handler for this file
@@ -149,13 +160,14 @@ impl<'b> FilesystemReader<'b> {
     /// Used when extracting a file from the image, for example using [`FilesystemReaderFile`]:
     /// ```rust,no_run
     /// # use std::fs::File;
+    /// # use std::num::NonZeroUsize;
     /// # use std::io::BufReader;
     /// # use backhand::{
     /// #     FilesystemReader, InnerNode, Squashfs, SquashfsBlockDevice, SquashfsCharacterDevice,
     /// #     SquashfsDir, SquashfsSymlink,
     /// # };
     /// # let file = BufReader::new(File::open("image.squashfs").unwrap());
-    /// # let filesystem = FilesystemReader::from_reader(file).unwrap();
+    /// # let filesystem = FilesystemReader::from_reader(file, NonZeroUsize::MIN).unwrap();
     /// // [snip: creating FilesystemReader]
     ///
     /// for node in filesystem.files() {
@@ -237,6 +249,10 @@ impl<'b> BlockReaderVersion<'b> for V3Blocks {
 
     fn cache(system: &Self::System) -> &RwLock<Cache> {
         &system.cache
+    }
+
+    fn decompression(system: &Self::System) -> &Decompression {
+        &system.decompression
     }
 
     fn fragment_of<'a>(

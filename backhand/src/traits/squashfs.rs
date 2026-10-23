@@ -1,3 +1,5 @@
+use std::num::NonZeroUsize;
+
 use solana_nohash_hasher::IntMap;
 
 use super::filesystem::FilesystemReaderTrait;
@@ -33,6 +35,7 @@ pub trait SquashfsVersion<'b> {
     /// Convert to filesystem reader
     fn into_filesystem_reader(
         squashfs: GenericSquashfs<'b, Self>,
+        decompression_threads: NonZeroUsize,
     ) -> Result<Self::FilesystemReader, crate::error::BackhandError>
     where
         Self: Sized;
@@ -99,8 +102,9 @@ impl<'b, V: SquashfsVersion<'b>> GenericSquashfs<'b, V> {
     /// like structure in-memory
     pub fn into_filesystem_reader(
         self,
+        decompression_threads: NonZeroUsize,
     ) -> Result<V::FilesystemReader, crate::error::BackhandError> {
-        V::into_filesystem_reader(self)
+        V::into_filesystem_reader(self, decompression_threads)
     }
 
     /// Get the compressor for this squashfs
@@ -118,6 +122,7 @@ pub fn create_squashfs_from_kind<'b>(
     reader: impl BufReadSeek + 'b,
     offset: u64,
     kind: Kind,
+    decompression_threads: NonZeroUsize,
 ) -> Result<Box<dyn FilesystemReaderTrait + 'b>, crate::error::BackhandError> {
     let (major, minor) = (kind.version_major(), kind.version_minor());
     match (major, minor) {
@@ -126,7 +131,7 @@ pub fn create_squashfs_from_kind<'b>(
             let squashfs = crate::v3::squashfs::Squashfs::from_reader_with_offset_and_kind(
                 reader, offset, kind,
             )?;
-            let filesystem = squashfs.into_filesystem_reader()?;
+            let filesystem = squashfs.into_filesystem_reader(decompression_threads)?;
             Ok(Box::new(filesystem) as Box<dyn FilesystemReaderTrait + 'b>)
         }
         #[cfg(not(feature = "v3"))]
@@ -135,7 +140,7 @@ pub fn create_squashfs_from_kind<'b>(
             let squashfs = crate::v4::squashfs::Squashfs::from_reader_with_offset_and_kind(
                 reader, offset, kind,
             )?;
-            let filesystem = squashfs.into_filesystem_reader()?;
+            let filesystem = squashfs.into_filesystem_reader(decompression_threads)?;
             Ok(Box::new(filesystem) as Box<dyn FilesystemReaderTrait + 'b>)
         }
         _ => Err(crate::error::BackhandError::UnsupportedSquashfsVersion(major, minor)),

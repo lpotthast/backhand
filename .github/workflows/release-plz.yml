@@ -111,7 +111,7 @@ jobs:
         run: |
           if [[ "${{ matrix.job.target }}" == *"darwin"* || "${{ matrix.job.target }}" == *"windows"* ]]; then
             # without v3_lzma
-            $BUILD_CMD build -p backhand-cli --bin add-backhand --bin replace-backhand --no-default-features --features xz-static,gzip,zstd,lz4,parallel,v3 --locked --target ${{ matrix.job.target }} --profile=dist
+            $BUILD_CMD build -p backhand-cli --bin add-backhand --bin replace-backhand --no-default-features --features xz-static,gzip,zstd,lz4,v3 --locked --target ${{ matrix.job.target }} --profile=dist
           else
             $BUILD_CMD build -p backhand-cli --bin add-backhand --bin replace-backhand --features xz-static --locked --target ${{ matrix.job.target }} --profile=dist
           fi
@@ -120,9 +120,9 @@ jobs:
         shell: bash
         run: |
           if [[ "${{ matrix.job.target }}" == *"darwin"* || "${{ matrix.job.target }}" == *"windows"* ]]; then
-            $BUILD_CMD build -p backhand-cli --bin unsquashfs-backhand --locked --target ${{ matrix.job.target }} --profile=dist --no-default-features --features zstd,xz-static,gzip,parallel,v3
+            $BUILD_CMD build -p backhand-cli --bin unsquashfs-backhand --locked --target ${{ matrix.job.target }} --profile=dist --no-default-features --features zstd,xz-static,gzip,v3
           else
-            $BUILD_CMD build -p backhand-cli --bin unsquashfs-backhand --locked --target ${{ matrix.job.target }} --profile=dist --no-default-features --features zstd,xz-static,gzip,parallel,v3,v3_lzma
+            $BUILD_CMD build -p backhand-cli --bin unsquashfs-backhand --locked --target ${{ matrix.job.target }} --profile=dist --no-default-features --features zstd,xz-static,gzip,v3,v3_lzma
           fi
 
       - name: archive

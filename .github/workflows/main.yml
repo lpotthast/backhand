@@ -28,10 +28,8 @@ jobs:
           - --no-default-features --features xz
           - --no-default-features --features gzip
           - --no-default-features --features gzip,xz
-          - --no-default-features --features gzip,xz,parallel
           - --no-default-features --features xz-static
           - --no-default-features --features lz4
-          - --no-default-features --features parallel
           - --no-default-features --features v3
           # LZMA does not build on windows
           # - --no-default-features --features v3_lzma
@@ -119,7 +117,7 @@ jobs:
           - "1.90"
         features:
           # default features (no lzma)
-          - xz,gzip,zstd,lz4,parallel,v3
+          - xz,gzip,zstd,lz4,v3
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

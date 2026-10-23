@@ -1,7 +1,9 @@
 use std::fs::File;
 use std::io::BufReader;
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::thread::available_parallelism;
 
 use backhand::{FilesystemReader, FilesystemWriter};
 use backhand_cli::after_help;
@@ -60,8 +62,10 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     };
     let file = BufReader::new(file);
-    let filesystem = FilesystemReader::from_reader(file).unwrap();
-    let mut filesystem = FilesystemWriter::from_fs_reader(&filesystem).unwrap();
+    // Decompress and compress data blocks on every CPU
+    let threads = available_parallelism().unwrap_or(NonZeroUsize::MIN);
+    let filesystem = FilesystemReader::from_reader(file, threads).unwrap();
+    let mut filesystem = FilesystemWriter::from_fs_reader(&filesystem, threads).unwrap();
 
     // Modify file
     let Ok(new_file) = File::open(&args.file) else {

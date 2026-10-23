@@ -1,4 +1,5 @@
 mod common;
+use common::THREADS;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Cursor};
 
@@ -39,8 +40,8 @@ fn test_add_00() {
     let new_path = std::path::Path::new(&og_path).parent().unwrap().join("bytes.squashfs");
     let new_path = new_path.to_str().unwrap();
     let file = BufReader::new(File::open(og_path).unwrap());
-    let og_filesystem = FilesystemReader::from_reader(file).unwrap();
-    let mut new_filesystem = FilesystemWriter::from_fs_reader(&og_filesystem).unwrap();
+    let og_filesystem = FilesystemReader::from_reader(file, THREADS).unwrap();
+    let mut new_filesystem = FilesystemWriter::from_fs_reader(&og_filesystem, THREADS).unwrap();
 
     let h = NodeHeader { permissions: 0o755, uid: 0, gid: 0, mtime: 0 };
 

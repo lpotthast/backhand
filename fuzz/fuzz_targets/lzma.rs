@@ -1,5 +1,7 @@
 #![no_main]
 
+use std::num::NonZeroUsize;
+
 use backhand::FilesystemReader;
 use backhand::kind::{Kind, LE_V4_0_LZMA};
 use libfuzzer_sys::fuzz_target;
@@ -10,5 +12,5 @@ use libfuzzer_sys::fuzz_target;
 fuzz_target!(|data: &[u8]| {
     let reader = std::io::Cursor::new(data);
     let kind = Kind::from_const(LE_V4_0_LZMA).unwrap();
-    let _ = FilesystemReader::from_reader_with_offset_and_kind(reader, 0, kind);
+    let _ = FilesystemReader::from_reader_with_offset_and_kind(reader, 0, kind, NonZeroUsize::MIN);
 });

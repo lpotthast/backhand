@@ -8,6 +8,7 @@ use solana_nohash_hasher::IntMap;
 
 use crate::error::BackhandError;
 use crate::kinds::Kind;
+use crate::traits::decompression::Decompression;
 use crate::traits::types::Compressor;
 use crate::v4::reader::BufReadSeek;
 
@@ -66,6 +67,9 @@ pub trait BlockReaderVersion<'b> {
 
     /// Decompressed fragment blocks, shared between all files of the filesystem
     fn cache(system: &Self::System) -> &RwLock<Cache>;
+
+    /// How the filesystem decompresses data blocks, shared between all files of the filesystem
+    fn decompression(system: &Self::System) -> &Decompression;
 
     /// The fragment this file's tail lives in, or `None` when it has no fragment
     fn fragment_of<'a>(
@@ -266,21 +270,30 @@ pub(crate) fn decompress<'b, V: BlockReaderVersion<'b>>(
         let block_size = V::block_size(system) as usize;
         output_buf.reserve(block_size);
         V::kind(system).decompress(input_buf, output_buf, V::compressor(system), block_size)?;
-        // store the cache, so decompression is not duplicated
         if data.fragment {
-            let fragment =
-                V::fragment_of(system, file)?.ok_or(BackhandError::CorruptedOrInvalidSquashfs)?;
-            //apply the fragment offset
-            let range = fragment_range::<V>(system, file, output_buf.len())?;
-            V::cache(system)
-                .write()
-                .unwrap()
-                .fragment_cache
-                .insert(V::fragment_start(fragment), output_buf.clone());
-
-            output_buf.drain(range.end..);
-            output_buf.drain(..range.start);
+            cache_fragment::<V>(system, file, output_buf)?;
         }
     }
+    Ok(())
+}
+
+/// Store the decompressed fragment block `fragment_block` in the cache, so that the files that
+/// share it do not decompress it again, and keep only `file`'s tail in `fragment_block`
+pub(crate) fn cache_fragment<'b, V: BlockReaderVersion<'b>>(
+    system: &V::System,
+    file: &V::File,
+    fragment_block: &mut Vec<u8>,
+) -> Result<(), BackhandError> {
+    let fragment =
+        V::fragment_of(system, file)?.ok_or(BackhandError::CorruptedOrInvalidSquashfs)?;
+    let range = fragment_range::<V>(system, file, fragment_block.len())?;
+    V::cache(system)
+        .write()
+        .unwrap()
+        .fragment_cache
+        .insert(V::fragment_start(fragment), fragment_block.clone());
+
+    fragment_block.drain(range.end..);
+    fragment_block.drain(..range.start);
     Ok(())
 }

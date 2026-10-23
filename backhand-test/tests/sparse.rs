@@ -6,6 +6,9 @@
 
 #![cfg(feature = "xz")]
 
+mod common;
+use common::THREADS;
+
 use std::fs::File;
 use std::io::{Cursor, Read, Seek, SeekFrom, Write};
 use std::os::unix::fs::MetadataExt;
@@ -58,7 +61,7 @@ fn expected_sparse(content: &[u8]) -> u64 {
 }
 
 fn write_image(content: &[u8]) -> Vec<u8> {
-    let mut fs = FilesystemWriter::default();
+    let mut fs = FilesystemWriter::new(THREADS);
     // squashfs-tools/unsquashfs must be able to read the file
     fs.set_root_mode(0o755);
     let header = NodeHeader::new(0o644, 0, 0, 0);
@@ -70,8 +73,8 @@ fn write_image(content: &[u8]) -> Vec<u8> {
 
 /// Read the image again through [`FilesystemWriter::from_fs_reader`]
 fn copy_image(image: &[u8]) -> Vec<u8> {
-    let reader = FilesystemReader::from_reader(Cursor::new(image)).unwrap();
-    let mut fs = FilesystemWriter::from_fs_reader(&reader).unwrap();
+    let reader = FilesystemReader::from_reader(Cursor::new(image), THREADS).unwrap();
+    let mut fs = FilesystemWriter::from_fs_reader(&reader, THREADS).unwrap();
     let mut out = Cursor::new(vec![]);
     fs.write(&mut out).unwrap();
     out.into_inner()
@@ -79,7 +82,7 @@ fn copy_image(image: &[u8]) -> Vec<u8> {
 
 /// Return the inode and the content of the file named `name`
 fn read_file(image: &[u8], name: &str) -> (SquashfsFileReader, Vec<u8>) {
-    let reader = FilesystemReader::from_reader(Cursor::new(image)).unwrap();
+    let reader = FilesystemReader::from_reader(Cursor::new(image), THREADS).unwrap();
     let node =
         reader.files().find(|node| node.fullpath.file_name().is_some_and(|n| n == name)).unwrap();
     let InnerNode::File(file) = &node.inner else { panic!("{name} is not a file") };

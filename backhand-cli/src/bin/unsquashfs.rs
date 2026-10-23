@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::fs::{self, File, Permissions};
 use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
+use std::num::NonZeroUsize;
 use std::os::unix::fs::lchown;
 use std::os::unix::prelude::PermissionsExt;
 use std::path::{Component, Path, PathBuf};
@@ -182,6 +183,12 @@ struct Args {
     quiet: bool,
 }
 
+/// The threads that decompress data blocks: as many as rayon extracts files with, which
+/// `RAYON_NUM_THREADS` sets
+fn decompression_threads() -> NonZeroUsize {
+    NonZeroUsize::new(rayon::current_num_threads()).unwrap_or(NonZeroUsize::MIN)
+}
+
 fn try_all_kinds(
     file: &mut BufReader<File>,
     offset: u64,
@@ -195,7 +202,8 @@ fn try_all_kinds(
             file.seek(SeekFrom::Start(0)).map_err(|e| format!("Failed to seek: {}", e))?;
 
             let success = {
-                let result = create_squashfs_from_kind(&mut *file, offset, kind.clone());
+                let result =
+                    create_squashfs_from_kind(&mut *file, offset, kind.clone(), NonZeroUsize::MIN);
                 match result {
                     Ok(_) => true,
                     Err(e) => {
@@ -260,7 +268,7 @@ fn handle_with_kind<'a>(
         }
     }
 
-    match create_squashfs_from_kind(file, args.offset, kind.clone()) {
+    match create_squashfs_from_kind(file, args.offset, kind.clone(), decompression_threads()) {
         Ok(filesystem) => Ok((filesystem, kind)),
         Err(e) => {
             error(pb, &format!("Could not read image: {e:?}"));
@@ -296,7 +304,12 @@ fn handle_auto_detect_kind<'a>(
                 pb.println(line);
             }
 
-            match create_squashfs_from_kind(file, args.offset, detected_kind.clone()) {
+            match create_squashfs_from_kind(
+                file,
+                args.offset,
+                detected_kind.clone(),
+                decompression_threads(),
+            ) {
                 Ok(filesystem) => Ok((filesystem, detected_kind)),
                 Err(e) => {
                     error(pb, &format!("Could not read image: {e:?}"));

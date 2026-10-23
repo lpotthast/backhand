@@ -3,6 +3,7 @@
 use no_std_io2::io::Seek;
 use std::ffi::OsString;
 use std::io::{Cursor, SeekFrom};
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::sync::{Mutex, RwLock};
 
@@ -19,6 +20,7 @@ use super::id::Id;
 use crate::Flags;
 use crate::error::BackhandError;
 use crate::kinds::{Kind, LE_V4_0};
+use crate::traits::decompression::Decompression;
 use crate::v3::dir::{Dir, DirInodeId};
 use crate::v3::fragment::Fragment;
 use crate::v3::inode::{Inode, InodeInner};
@@ -594,7 +596,10 @@ impl<'b> Squashfs<'b> {
     /// Convert into [`FilesystemReader`] by extracting all file bytes and converting into a filesystem
     /// like structure in-memory
     #[cfg_attr(feature = "error-strings", tracing::instrument(skip_all))]
-    pub fn into_filesystem_reader(self) -> Result<FilesystemReader<'b>, BackhandError> {
+    pub fn into_filesystem_reader(
+        self,
+        decompression_threads: NonZeroUsize,
+    ) -> Result<FilesystemReader<'b>, BackhandError> {
         info!("creating fs tree");
         let mut root = Nodes::new_root({
             // Create temporary combined id table for v3 compatibility
@@ -621,6 +626,8 @@ impl<'b> Squashfs<'b> {
         } else {
             1u32 << self.superblock.block_log
         };
+        let decompression =
+            Decompression::new(decompression_threads, &self.kind, None, block_size)?;
         let filesystem = FilesystemReader {
             kind: self.kind,
             block_size,
@@ -641,6 +648,7 @@ impl<'b> Squashfs<'b> {
             root,
             reader: Mutex::new(Box::new(self.file)),
             cache: RwLock::new(Cache::default()),
+            decompression,
         };
         Ok(filesystem)
     }

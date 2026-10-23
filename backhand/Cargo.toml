@@ -31,11 +31,10 @@ document-features = { version = "0.2.10", optional = true }
 xxhash-rust = { version = "0.8.18", features = ["xxh64"] }
 solana-nohash-hasher = "0.2.1"
 lz4_flex = { version = "0.14.0", optional = true, default-features = false, features = ["alloc"] }
-rayon = { version = "1.12.0", optional = true, default-features = false }
 no_std_io2 = "0.9.4"
 
 [features]
-default = ["xz", "gzip", "zstd", "lz4", "parallel", "error-strings"]
+default = ["xz", "gzip", "zstd", "lz4", "error-strings"]
 ## Enables squashfs v3
 v3 = ["gzip"]
 ## Enables squashfs v3 with LZMA compression
@@ -56,8 +55,6 @@ zstd = ["dep:zstd", "dep:zstd-safe"]
 lz4 = ["dep:lz4_flex"]
 ## Internal only
 any-gzip = []
-## Enable parallel decompression
-parallel = ["dep:rayon"]
 ## Include deku descriptive parse-error strings.
 descriptive-errors = ["deku/descriptive-errors"]
 ## Include this library's own error messages and log records. On by default.

@@ -1,4 +1,5 @@
 mod common;
+use common::THREADS;
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
 
@@ -25,7 +26,7 @@ enum Verify {
 fn only_read(path: &str, offset: u64) {
     let file = BufReader::new(File::open(path).unwrap());
     info!("calling from_reader");
-    let _ = FilesystemReader::from_reader_with_offset(file, offset).unwrap();
+    let _ = FilesystemReader::from_reader_with_offset(file, offset, THREADS).unwrap();
 
     // TODO: this should still check our own unsquashfs
 }
@@ -37,7 +38,8 @@ fn only_read(path: &str, offset: u64) {
 fn only_read_kind(path: &str, offset: u64, kind: backhand::kind::Kind, kind_str: &str) {
     let file = BufReader::new(File::open(path).unwrap());
     info!("calling from_reader");
-    let _ = FilesystemReader::from_reader_with_offset_and_kind(file, offset, kind).unwrap();
+    let _ =
+        FilesystemReader::from_reader_with_offset_and_kind(file, offset, kind, THREADS).unwrap();
 
     common::test_bin_unsquashfs_with_kind(
         path,
@@ -73,9 +75,9 @@ fn full_test_inner(
     let new_path = new_path.to_str().unwrap();
     let file = BufReader::new(File::open(og_path).unwrap());
     info!("calling from_reader");
-    let og_filesystem = FilesystemReader::from_reader_with_offset(file, offset).unwrap();
+    let og_filesystem = FilesystemReader::from_reader_with_offset(file, offset, THREADS).unwrap();
     let og_comp_opts = og_filesystem.compression_options;
-    let mut new_filesystem = FilesystemWriter::from_fs_reader(&og_filesystem).unwrap();
+    let mut new_filesystem = FilesystemWriter::from_fs_reader(&og_filesystem, THREADS).unwrap();
 
     // convert to bytes
     info!("calling to_bytes");
@@ -90,7 +92,7 @@ fn full_test_inner(
     info!("calling from_reader");
     let created_file = BufReader::new(File::open(new_path).unwrap());
     let written_new_filesystem =
-        FilesystemReader::from_reader_with_offset(created_file, offset).unwrap();
+        FilesystemReader::from_reader_with_offset(created_file, offset, THREADS).unwrap();
 
     // compression options are the same
     let new_comp_opts = written_new_filesystem.compression_options;

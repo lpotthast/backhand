@@ -2,6 +2,7 @@ use std::fs::File;
 use std::io::{BufReader, Cursor};
 use std::process::Command;
 use std::sync::OnceLock;
+use std::thread::available_parallelism;
 use std::time::Duration;
 
 use assert_cmd::prelude::*;
@@ -38,8 +39,11 @@ fn download_asset(asset_key: &str) -> String {
 
 fn read_write(file: File, offset: u64) {
     let file = BufReader::new(file);
-    let og_filesystem = FilesystemReader::from_reader_with_offset(file, offset).unwrap();
-    let mut new_filesystem = FilesystemWriter::from_fs_reader(&og_filesystem).unwrap();
+    let og_filesystem =
+        FilesystemReader::from_reader_with_offset(file, offset, available_parallelism().unwrap())
+            .unwrap();
+    let mut new_filesystem =
+        FilesystemWriter::from_fs_reader(&og_filesystem, available_parallelism().unwrap()).unwrap();
 
     // convert to bytes
     let mut output = Cursor::new(vec![]);
@@ -48,7 +52,10 @@ fn read_write(file: File, offset: u64) {
 
 fn read(file: File, offset: u64) {
     let file = BufReader::new(file);
-    std::hint::black_box(FilesystemReader::from_reader_with_offset(file, offset).unwrap());
+    std::hint::black_box(
+        FilesystemReader::from_reader_with_offset(file, offset, available_parallelism().unwrap())
+            .unwrap(),
+    );
 }
 
 pub fn bench_read_write(c: &mut Criterion) {

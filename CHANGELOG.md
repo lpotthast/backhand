@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### `backhand`
+
+- Remove the feature `parallel`. Whether reading or writing an image uses every CPU depended on
+  whether any crate in a build enabled the feature, so a crate could not tell how many threads
+  backhand would use, and feature unification could change that behind its back. The thread
+  count is now an argument instead, and there is no default.
+- `FilesystemReader::from_reader`, `from_reader_with_offset`, `from_reader_with_offset_and_kind`,
+  `Squashfs::into_filesystem_reader` and `create_squashfs_from_kind` take the number of threads
+  that decompress data blocks. With more than one, the filesystem reader owns that many threads,
+  and each file's reader keeps that many blocks in flight. With one, the reading thread
+  decompresses each block. backhand no longer depends on rayon.
+- `FilesystemWriter::new` and `FilesystemWriter::from_fs_reader` take the number of threads that
+  compress data blocks. `FilesystemWriter` no longer implements `Default`. The image is the same
+  for any number of threads.
+
+### `backhand-cli`
+
+- Remove the feature `parallel`. `unsquashfs-backhand` decompresses on as many threads as it
+  extracts files with (`RAYON_NUM_THREADS`). `add-backhand` and `replace-backhand` decompress and
+  compress on every CPU.
+
 ## [0.25.5](https://github.com/wcampbell0x2a/backhand/compare/v0.25.4...v0.25.5) - 2026-09-26
 
 ### Other

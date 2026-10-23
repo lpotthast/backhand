@@ -1,4 +1,5 @@
 mod common;
+use common::THREADS;
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
 
@@ -22,10 +23,14 @@ fn full_test(test_name: &str, og_path: &str, offset: u64, kind: &Kind, pad: Opti
     {
         let file = BufReader::new(File::open(og_path).unwrap());
         info!("calling from_reader");
-        let og_filesystem =
-            FilesystemReader::from_reader_with_offset_and_kind(file, offset, Kind::from_kind(kind))
-                .unwrap();
-        let mut new_filesystem = FilesystemWriter::from_fs_reader(&og_filesystem).unwrap();
+        let og_filesystem = FilesystemReader::from_reader_with_offset_and_kind(
+            file,
+            offset,
+            Kind::from_kind(kind),
+            THREADS,
+        )
+        .unwrap();
+        let mut new_filesystem = FilesystemWriter::from_fs_reader(&og_filesystem, THREADS).unwrap();
         if let Some(pad) = pad {
             new_filesystem.set_kib_padding(pad);
         }
@@ -47,6 +52,7 @@ fn full_test(test_name: &str, og_path: &str, offset: u64, kind: &Kind, pad: Opti
             created_file,
             offset,
             Kind::from_kind(kind),
+            THREADS,
         )
         .unwrap();
     }

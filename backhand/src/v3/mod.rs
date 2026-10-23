@@ -1,5 +1,7 @@
 //! SquashFS v3 implementation
 
+use std::num::NonZeroUsize;
+
 use crate::kinds::Kind;
 use crate::traits::{GenericSquashfs, SquashfsVersion};
 use crate::v4::reader::BufReadSeek;
@@ -62,6 +64,7 @@ impl<'b> SquashfsVersion<'b> for V3 {
 
     fn into_filesystem_reader(
         squashfs: GenericSquashfs<'b, Self>,
+        decompression_threads: NonZeroUsize,
     ) -> Result<Self::FilesystemReader, crate::BackhandError> {
         let v3_squashfs = squashfs::Squashfs {
             kind: squashfs.kind,
@@ -77,7 +80,7 @@ impl<'b> SquashfsVersion<'b> for V3 {
             file: squashfs.file,
         };
 
-        v3_squashfs.into_filesystem_reader()
+        v3_squashfs.into_filesystem_reader(decompression_threads)
     }
 
     fn get_compressor(_superblock: &Self::SuperBlock) -> crate::traits::types::Compressor {

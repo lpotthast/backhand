@@ -1,12 +1,14 @@
 #![no_main]
 
+use std::num::NonZeroUsize;
+
 use backhand::{FilesystemReader, FilesystemWriter, NodeHeader};
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
     let header = NodeHeader { permissions: 0o755, uid: 0, gid: 0, mtime: 0 };
 
-    let mut fs = FilesystemWriter::default();
+    let mut fs = FilesystemWriter::new(NonZeroUsize::MIN);
     fs.set_time(0x634f5237);
 
     fs.push_dir("oh", header).unwrap();
@@ -22,5 +24,5 @@ fuzz_target!(|data: &[u8]| {
     // reset the position to the start so we can read this as a file
     output.set_position(0);
     // all files create using FilesystemWriter need to be valid
-    let _ = FilesystemReader::from_reader(output).unwrap();
+    let _ = FilesystemReader::from_reader(output, NonZeroUsize::MIN).unwrap();
 });

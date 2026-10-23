@@ -4,6 +4,7 @@ use no_std_io2::io::Seek;
 use std::collections::HashSet;
 use std::ffi::OsString;
 use std::io::{Cursor, SeekFrom};
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::sync::RwLock;
@@ -13,6 +14,7 @@ use solana_nohash_hasher::IntMap;
 
 use crate::error::BackhandError;
 use crate::kinds::{Kind, LE_V4_0};
+use crate::traits::decompression::Decompression;
 use crate::v4::compressor::{CompressionOptions, Compressor};
 use crate::v4::dir::Dir;
 use crate::v4::filesystem::node::{InnerNode, Nodes};
@@ -647,7 +649,10 @@ impl<'b> Squashfs<'b> {
 
     /// Convert into [`FilesystemReader`] by extracting all file bytes and converting into a filesystem
     /// like structure in-memory
-    pub fn into_filesystem_reader(self) -> Result<FilesystemReader<'b>, BackhandError> {
+    pub fn into_filesystem_reader(
+        self,
+        decompression_threads: NonZeroUsize,
+    ) -> Result<FilesystemReader<'b>, BackhandError> {
         info!("creating fs tree");
         let mut root = Nodes::new_root(NodeHeader::from_inode(self.root_inode.header, &self.id)?);
         let mut visited_inodes = HashSet::new();
@@ -661,6 +666,12 @@ impl<'b> Squashfs<'b> {
         root.nodes.sort();
 
         info!("created fs tree");
+        let decompression = Decompression::new(
+            decompression_threads,
+            &self.kind,
+            Some(self.superblock.compressor.into()),
+            self.superblock.block_size,
+        )?;
         let filesystem = FilesystemReader {
             kind: self.kind,
             block_size: self.superblock.block_size,
@@ -673,6 +684,7 @@ impl<'b> Squashfs<'b> {
             root,
             reader: Mutex::new(Box::new(self.file)),
             cache: RwLock::new(Cache::default()),
+            decompression,
             no_duplicate_files: self.superblock.data_has_been_deduplicated(),
         };
         Ok(filesystem)

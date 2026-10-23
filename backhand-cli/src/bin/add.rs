@@ -1,8 +1,10 @@
 use std::fs::File;
 use std::io::BufReader;
+use std::num::NonZeroUsize;
 use std::os::unix::fs::MetadataExt;
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::thread::available_parallelism;
 
 use backhand::{FilesystemReader, FilesystemWriter, NodeHeader};
 use backhand_cli::after_help;
@@ -81,8 +83,10 @@ fn main() -> ExitCode {
     let file = File::open(args.input_image).unwrap();
     let file = BufReader::new(file);
 
-    let filesystem = FilesystemReader::from_reader(file).unwrap();
-    let mut filesystem = FilesystemWriter::from_fs_reader(&filesystem).unwrap();
+    // Decompress and compress data blocks on every CPU
+    let threads = available_parallelism().unwrap_or(NonZeroUsize::MIN);
+    let filesystem = FilesystemReader::from_reader(file, threads).unwrap();
+    let mut filesystem = FilesystemWriter::from_fs_reader(&filesystem, threads).unwrap();
 
     // create new file
     if let Some(file) = args.file {

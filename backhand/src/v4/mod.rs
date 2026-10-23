@@ -1,6 +1,8 @@
 //! SquashFS v4 implementation
 
 use crate::BackhandError;
+use std::num::NonZeroUsize;
+
 use crate::kinds::Kind;
 use crate::traits::{GenericSquashfs, SquashfsVersion};
 use crate::v4::reader::BufReadSeek;
@@ -63,6 +65,7 @@ impl<'b> SquashfsVersion<'b> for V4 {
 
     fn into_filesystem_reader(
         squashfs: GenericSquashfs<'b, Self>,
+        decompression_threads: NonZeroUsize,
     ) -> Result<Self::FilesystemReader, BackhandError> {
         let v4_squashfs = squashfs::Squashfs {
             kind: squashfs.kind,
@@ -77,7 +80,7 @@ impl<'b> SquashfsVersion<'b> for V4 {
             file: squashfs.file,
         };
 
-        v4_squashfs.into_filesystem_reader()
+        v4_squashfs.into_filesystem_reader(decompression_threads)
     }
 
     fn get_compressor(superblock: &Self::SuperBlock) -> crate::traits::types::Compressor {

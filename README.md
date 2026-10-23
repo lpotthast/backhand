@@ -64,14 +64,18 @@ Although additional targets may be supported, only the following have been fully
 ```rust,no_run
 use std::fs::File;
 use std::io::{Cursor, BufReader};
+use std::thread::available_parallelism;
 use backhand::{FilesystemReader, FilesystemWriter, NodeHeader};
+
+// decompress and compress on every CPU
+let threads = available_parallelism().unwrap();
 
 // read
 let file = BufReader::new(File::open("file.squashfs").unwrap());
-let read_filesystem = FilesystemReader::from_reader(file).unwrap();
+let read_filesystem = FilesystemReader::from_reader(file, threads).unwrap();
 
 // convert to writer
-let mut write_filesystem = FilesystemWriter::from_fs_reader(&read_filesystem).unwrap();
+let mut write_filesystem = FilesystemWriter::from_fs_reader(&read_filesystem, threads).unwrap();
 
 // add file with data from slice
 let d = NodeHeader::default();
