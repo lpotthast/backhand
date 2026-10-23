@@ -82,6 +82,8 @@ pub struct FilesystemWriter<'a, 'b, 'c> {
     /// Superblock Flag to remove duplicate flags
     pub(crate) no_duplicate_files: bool,
     pub(crate) emit_compression_options: bool,
+    /// The number of threads that compress data blocks. `None` chooses it when writing.
+    pub(crate) compression_threads: Option<NonZeroUsize>,
 }
 
 impl Default for FilesystemWriter<'_, '_, '_> {
@@ -102,7 +104,21 @@ impl Default for FilesystemWriter<'_, '_, '_> {
             pad_len: DEFAULT_PAD_LEN,
             no_duplicate_files: true,
             emit_compression_options: true,
+            compression_threads: None,
         }
+    }
+}
+
+/// With the `parallel` feature, one thread for each CPU that the process may use. Otherwise one,
+/// which compresses on the calling thread.
+fn default_compression_threads() -> NonZeroUsize {
+    #[cfg(feature = "parallel")]
+    {
+        std::thread::available_parallelism().unwrap_or(NonZeroUsize::MIN)
+    }
+    #[cfg(not(feature = "parallel"))]
+    {
+        NonZeroUsize::MIN
     }
 }
 
@@ -210,6 +226,19 @@ impl<'a, 'b, 'c> FilesystemWriter<'a, 'b, 'c> {
         self.emit_compression_options = value;
     }
 
+    /// Set the number of threads that compress data blocks
+    ///
+    /// The image is the same for any number of threads. With one thread, blocks are compressed
+    /// on the thread that calls [`Self::write`]. Otherwise, [`Self::write`] spawns the threads
+    /// and keeps at most one block per thread, and a few more, in memory while it waits for
+    /// them.
+    ///
+    /// Defaults to the number of CPUs available with the `parallel` feature, and to one
+    /// without it.
+    pub fn set_compression_threads(&mut self, threads: NonZeroUsize) {
+        self.compression_threads = Some(threads);
+    }
+
     /// Inherit filesystem structure and properties from `reader`
     pub fn from_fs_reader(reader: &'a FilesystemReader<'b>) -> Result<Self, BackhandError> {
         let mut root: Vec<Node<_>> = reader
@@ -247,6 +276,7 @@ impl<'a, 'b, 'c> FilesystemWriter<'a, 'b, 'c> {
             pad_len: DEFAULT_PAD_LEN,
             no_duplicate_files: reader.no_duplicate_files,
             emit_compression_options: true,
+            compression_threads: None,
         })
     }
 
@@ -509,40 +539,50 @@ impl<'a, 'b, 'c> FilesystemWriter<'a, 'b, 'c> {
     where
         W: WriteSeek,
     {
-        let files = self.root.nodes.iter_mut().filter_map(|node| match &mut node.inner {
-            InnerNode::File(file) => Some(file),
-            _ => None,
-        });
-        for file in files {
-            let (filesize, added) = match file {
-                SquashfsFileWriter::UserDefined(file) => {
-                    let file_ptr = Arc::clone(file);
-                    let mut file_lock =
-                        file_ptr.lock().map_err(|_| BackhandError::MutexPoisoned)?;
-                    data_writer.add_bytes(&mut *file_lock, &mut writer)?
-                }
-                SquashfsFileWriter::LazyFile(lazy) => {
-                    // the file descriptor lives only for this file, not for the whole write
-                    let mut reader = lazy.open()?;
-                    data_writer.add_bytes(&mut reader, &mut writer)?
-                }
-                SquashfsFileWriter::SquashfsFile(file) => {
-                    // if the source file and the destination files are both
-                    // squashfs files and use the same compressor and block_size
-                    // just copy the data, don't compress->decompress
-                    // A `None` source compressor never matches, so those files take the
-                    // decompress->recompress path rather than being copied blindly.
-                    if file.system.compressor == Some(compressor.id.into())
-                        && file.system.compression_options == compressor.options
-                        && file.system.block_size == block_size
-                    {
-                        data_writer.just_copy_it(file.raw_data_reader(), &mut writer)?
-                    } else {
-                        data_writer.add_bytes(file.reader(), &mut writer)?
+        let mut files: Vec<_> = self
+            .root
+            .nodes
+            .iter_mut()
+            .filter_map(|node| match &mut node.inner {
+                InnerNode::File(file) => Some(file),
+                _ => None,
+            })
+            .collect();
+        let threads = self.compression_threads.unwrap_or_else(default_compression_threads);
+        let added = data_writer.write_files(threads, &mut writer, |session| {
+            for file in &mut files {
+                match &mut **file {
+                    SquashfsFileWriter::UserDefined(file) => {
+                        let file_ptr = Arc::clone(file);
+                        let mut file_lock =
+                            file_ptr.lock().map_err(|_| BackhandError::MutexPoisoned)?;
+                        session.add_bytes(&mut *file_lock)?;
                     }
+                    SquashfsFileWriter::LazyFile(lazy) => {
+                        // the file descriptor lives only for this file, not for the whole write
+                        session.add_bytes(lazy.open()?)?;
+                    }
+                    SquashfsFileWriter::SquashfsFile(file) => {
+                        // if the source file and the destination files are both
+                        // squashfs files and use the same compressor and block_size
+                        // just copy the data, don't compress->decompress
+                        // A `None` source compressor never matches, so those files take the
+                        // decompress->recompress path rather than being copied blindly.
+                        if file.system.compressor == Some(compressor.id.into())
+                            && file.system.compression_options == compressor.options
+                            && file.system.block_size == block_size
+                        {
+                            session.copy(file.raw_data_reader())?;
+                        } else {
+                            session.add_bytes(file.reader())?;
+                        }
+                    }
+                    SquashfsFileWriter::Consumed(_, _) => unreachable!(),
                 }
-                SquashfsFileWriter::Consumed(_, _) => unreachable!(),
-            };
+            }
+            Ok(())
+        })?;
+        for (file, (filesize, added)) in files.into_iter().zip(added) {
             *file = SquashfsFileWriter::Consumed(filesize, added);
         }
         Ok(())
